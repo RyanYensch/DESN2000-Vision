@@ -1,4 +1,5 @@
 import torch
+import cv2
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import time
@@ -13,21 +14,36 @@ model.eval()
 
 OBJECT_NAME: str = "cardboard box"
 
-def check_frame(path: str) -> bool:
-    image = Image.open(path)
+def check_frame(frame_bgr: "cv2.Mat") -> bool:
+    image = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
     encoded = model.encode_image(image)
 
-    res = model.answer_question(encoded, f"Is there anything other than a {OBJECT_NAME} in the image?", tokeniser)
+    res = model.answer_question(encoded, f"Is there a {OBJECT_NAME} in the image?", tokeniser)
 
-    return res.strip().lower().startswith("no")
+    return res.strip().lower().startswith("yes")
 
 def main():
-    while True:
-        triggered = check_frame("frame.jpg")
-        if triggered:
-            print(f"{OBJECT_NAME.upper()} DETECTED")
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        raise RuntimeError("Could not open webcam")
 
-        time.sleep(0.5)
+    print(f"Watching for {OBJECT_NAME}...")
+
+    try:
+        while True:
+            ret, frame = cap.read()
+
+            if not ret:
+                continue
+
+            if check_frame(frame):
+                print(f"{OBJECT_NAME.upper()} DETECTED")
+
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        cap.release()
 
 
 if __name__ == "__main__":
