@@ -2,8 +2,7 @@ import torch
 import cv2
 import threading
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import time
+from transformers import AutoModelForCausalLM
 
 MODEL_ID = "vikhyatk/moondream2"
 REVISION = "2025-06-21"
@@ -12,19 +11,38 @@ model = AutoModelForCausalLM.from_pretrained(MODEL_ID, revision=REVISION, trust_
 
 model.eval()
 
-OBJECT_NAME: str = "cardboard box"
+OBJECT_NAME: str = "smartphone"
 
-def check_frame(frame_bgr: "cv2.Mat") -> bool:
-    image = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+latest_frame = None
+frame_lock = threading.Lock()
+stop_event = threading.Event()
 
-    res = model.detect(image, OBJECT_NAME)
+def bg_loop():
+    while not stop_event.is_set():
+        with frame_lock:
+            if latest_frame is None:
+                continue
 
-    return len(res["objects"]) > 0
+            frame = latest_frame.copy()
+
+        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        res = model.detect(image, OBJECT_NAME)
+
+        n = len(res["objects"]) 
+        if n > 0:
+            print(f"{OBJECT_NAME.upper()} DETECTED ({n} objects)")
+        else:
+            print(".", end="", flush=True)
+
 
 def main():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam")
+
+
+    t = threading.Thread(target=bg_loop, daemon=True)
+    t.start()
 
     print(f"Watching for {OBJECT_NAME}...")
 
@@ -35,17 +53,18 @@ def main():
             if not ret:
                 continue
 
+            with frame_lock:
+                global latest_frame
+                latest_frame = frame
+
             cv2.imshow("Webcam", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-
-            if check_frame(frame):
-                print(f"{OBJECT_NAME.upper()} DETECTED")
-
-            time.sleep(0.5)
+                
     except KeyboardInterrupt:
         pass
     finally:
+        stop_event.set()
         cap.release()
         cv2.destroyAllWindows()
 
