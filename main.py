@@ -3,6 +3,7 @@ import cv2
 import threading
 from PIL import Image
 from transformers import AutoModelForCausalLM
+import time
 
 MODEL_ID = "vikhyatk/moondream2"
 REVISION = "2025-06-21"
@@ -17,7 +18,14 @@ latest_frame = None
 frame_lock = threading.Lock()
 stop_event = threading.Event()
 
+# Show result
+last_result = None
+last_boxes = []
+result_lock = threading.Lock()
+
 def bg_loop():
+    global last_result, last_boxes
+
     while not stop_event.is_set():
         with frame_lock:
             if latest_frame is None:
@@ -28,14 +36,20 @@ def bg_loop():
         image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         res = model.detect(image, OBJECT_NAME)
 
-        n = len(res["objects"]) 
-        if n > 0:
-            print(f"{OBJECT_NAME.upper()} DETECTED ({n} objects)")
-        else:
-            print(".", end="", flush=True)
+        objects = res["objects"]
+
+        with result_lock:
+            if objects:
+                last_result = "DETECTED"
+                last_boxes = [(o["x_min"], o["y_min"], o["x_max"], o["y_max"]) for o in objects]
+            else:
+                last_result = "NOT DETECTED"
+                last_boxes = []
 
 
 def main():
+    global latest_frame, last_result, last_boxes
+
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         raise RuntimeError("Could not open webcam")
@@ -54,8 +68,32 @@ def main():
                 continue
 
             with frame_lock:
-                global latest_frame
                 latest_frame = frame
+
+            with result_lock:
+                status = last_result
+                boxes = last_boxes
+
+            h, w = frame.shape[:2]
+            for x_min, y_min, x_max, y_max in boxes:
+                x1, y1 = int(x_min * w), int(y_min * h)
+                x2, y2 = int(x_max * w), int(y_max * h)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
+            if status == "DETECTED":
+                colour = (0, 255, 0)
+                text = f"{OBJECT_NAME.upper()} DETECTED"
+            elif status == "NOT DETECTED":
+                colour = (0, 0, 255)
+                text = "NOT DETECTED"
+            else:
+                colour = (255, 255, 0)
+                text = "ANALYSING..."
+
+            cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, colour, 2)
+
+            ts = time.strftime("%H:%M:%S")
+            cv2.putText(frame, ts, (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
             cv2.imshow("Webcam", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
