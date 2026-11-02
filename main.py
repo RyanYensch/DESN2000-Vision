@@ -1,17 +1,25 @@
-import moondream as md
+import torch
 from PIL import Image
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import time
 
-model = md.photon("moondream3.1-9B-A2B")
+MODEL_ID = "vikhyatk/moondream2"
+REVISION = "2025-06-21"
+
+tokeniser = AutoTokenizer.from_pretrained(MODEL_ID, revision=REVISION)
+model = AutoModelForCausalLM.from_pretrained(MODEL_ID, revision=REVISION, trust_remote_code=True, torch_dtype=torch.float32, device_map={"": "cpu"})
+
+model.eval()
 
 OBJECT_NAME: str = "cardboard box"
 
 def check_frame(path: str) -> bool:
     image = Image.open(path)
+    encoded = model.encode_image(image)
 
-    res = model.query(image, f"Is there anything other than a {OBJECT_NAME} in the image?")
+    res = model.answer_question(encoded, f"Is there anything other than a {OBJECT_NAME} in the image?", tokeniser)
 
-    return res["answer"].strip().lower().startswith("no")
+    return res.strip().lower().startswith("no")
 
 def main():
     while True:
