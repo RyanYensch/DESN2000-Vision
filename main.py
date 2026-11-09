@@ -3,6 +3,7 @@ import threading
 import time
 import argparse
 from ultralytics import YOLO
+from ultralytics.engine.results import Results
 
 
 model = YOLO("yolo26n.pt")
@@ -34,7 +35,12 @@ def bg_loop():
 
         start = time.perf_counter()
 
-        res = model.predict(source=frame, device="cpu", imgsz=416, conf=0.35, classes=target_ids, verbose=False)[0]
+        res = model.predict(source=frame, device="cpu", imgsz=416, conf=0.35, classes=target_ids, verbose=False)
+
+        res = next(iter(res))
+
+        if not isinstance(res, Results):
+            raise TypeError("Expected YOLO result")
 
         elapsed_ms = (time.perf_counter() - start) * 1000
 
