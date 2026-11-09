@@ -1,18 +1,14 @@
-import torch
 import cv2
 import threading
-from PIL import Image
-from transformers import AutoModelForCausalLM
 import time
+import argparse
+from ultralytics import YOLO
 
-MODEL_ID = "vikhyatk/moondream2"
-REVISION = "2025-06-21"
 
-model = AutoModelForCausalLM.from_pretrained(MODEL_ID, revision=REVISION, trust_remote_code=True, dtype=torch.float32, device_map={"": "cpu"})
+model = YOLO("yolo26n.pt")
 
-model.eval()
-
-OBJECT_NAME: str = "smartphone"
+DEFAULT_CLASSES = ["bottle", "cell phone"]
+target_ids: list[int] = []
 
 latest_frame = None
 frame_lock = threading.Lock()
@@ -25,41 +21,34 @@ last_analysis_frame = None
 result_lock = threading.Lock()
 
 def bg_loop():
-    global last_result, last_boxes, last_analysis_frame
+    global last_result, last_analysis_frame, latest_frame
 
     while not stop_event.is_set():
         with frame_lock:
-            if latest_frame is None:
-                continue
+            frame = latest_frame.copy() if latest_frame is not None else None
+            latest_frame = None
 
-            frame = latest_frame.copy()
+        if frame is None:
+            stop_event.wait(0.01)
+            continue
 
-        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        res = model.detect(image, OBJECT_NAME)
+        start = time.perf_counter()
 
-        objects = res["objects"]
+        res = model.predict(source=frame, device="cpu", imgsz=416, conf=0.35, classes=target_ids, verbose=False)[0]
 
-        annotated = frame.copy()
-        h, w = annotated.shape[:2]
+        elapsed_ms = (time.perf_counter() - start) * 1000
 
-        if objects:
-            for o in objects:
-                x1, y1 = int(o["x_min"] * w), int(o["y_min"] * h)
-                x2, y2 = int(o["x_max"] * w), int(o["y_max"] * h)
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-            status = "DETECTED"
-            colour = (0, 255, 0)
-            text = f"{OBJECT_NAME.upper()} DETECTED"
-            last_boxes = [(o["x_min"], o["y_min"], o["x_max"], o["y_max"]) for o in objects]
-        else:
-            status = "NOT DETECTED"
-            colour = (0, 0, 255)
-            text = "NOT DETECTED"
+        annotated = res.plot()
 
+        detected_count = len(res.boxes) if res.boxes is not None else 0
+
+        status = "DETECTED" if detected_count > 0 else "NOT DETECTED"
+        colour = (0, 255, 0) if detected_count > 0 else (0, 0, 255)
+        text = f"{status} ({detected_count}): {elapsed_ms:.0f}ms"
 
         cv2.putText(annotated, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, colour, 2)
-        
+
         ts = time.strftime("%H:%M:%S")
         cv2.putText(annotated, ts, (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
@@ -69,7 +58,25 @@ def bg_loop():
 
 
 def main():
-    global latest_frame
+    global latest_frame, target_ids
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--add-class", default=None)
+    args = parser.parse_args()
+
+    class_names = DEFAULT_CLASSES.copy()
+
+    if args.add_class is not None:
+        class_names.append(args.add_class)
+
+
+    unknown = [name for name in class_names if name not in model.names.values()]
+
+    if unknown:
+        raise ValueError(f"Unsupported YOLO classes: {unknown}")
+
+    target_ids = [class_id for class_id, name in model.names.items() if name in class_names]
+
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -79,7 +86,7 @@ def main():
     t = threading.Thread(target=bg_loop, daemon=True)
     t.start()
 
-    print(f"Watching for {OBJECT_NAME}...")
+    print(f"Watching for {', '.join(class_names)}...")
 
     try:
         while True:
@@ -94,8 +101,6 @@ def main():
             ts = time.strftime("%H:%M:%S")
             cv2.putText(frame, ts, (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
-            cv2.imshow("Webcam", frame)
-
             with result_lock:
                 analysis = last_analysis_frame
 
@@ -104,7 +109,7 @@ def main():
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-                
+
     except KeyboardInterrupt:
         pass
     finally:
