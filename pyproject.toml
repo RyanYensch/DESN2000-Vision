@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "opencv-python>=5.0.0.93",
+    "roboflow>=1.7.3",
     "ultralytics>=8.4.208",
 ]

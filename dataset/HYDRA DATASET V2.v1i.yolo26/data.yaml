@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 14
+names: ['Aluminum Can', 'Bottle Lid', 'Cardboard Box', 'Cigarette Filter', 'Eggshell', 'Leaf', 'Plastic Bottle', 'Plastic Fork', 'Plastic Pouch', 'Plastic Spoon', 'Plastic Wrapper', 'Rubberband', 'Styrofoam Container', 'Wood Stick']
+
+roboflow:
+  workspace: hydra-dataset
+  project: hydra-dataset-v2
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/hydra-dataset/hydra-dataset-v2/dataset/1

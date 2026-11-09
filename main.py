@@ -2,13 +2,17 @@ import cv2
 import threading
 import time
 import argparse
-from ultralytics import YOLO
+from ultralytics import YOLOE
 from ultralytics.engine.results import Results
 
 
-model = YOLO("yolo26n.pt")
+model = YOLOE("yoloe-26n-seg.pt")
 
-DEFAULT_CLASSES = ["bottle", "cell phone"]
+DEFAULT_CLASSES = [
+    "cardboard box",
+    "flattened cardboard",
+    "plastic bottle",
+]
 target_ids: list[int] = []
 
 latest_frame = None
@@ -35,7 +39,7 @@ def bg_loop():
 
         start = time.perf_counter()
 
-        res = model.predict(source=frame, device="cpu", imgsz=416, conf=0.35, classes=target_ids, verbose=False)
+        res = model.predict(source=frame, device="cpu", imgsz=416, conf=0.35, verbose=False)
 
         res = next(iter(res))
 
@@ -67,8 +71,17 @@ def main():
     global latest_frame, target_ids
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--list-classes", action="store_true", help="List the names of the classes")
     parser.add_argument("--add-class", default=None)
     args = parser.parse_args()
+
+
+    #  Display all of the options
+    if args.list_classes is True:
+        for class_id, name in model.names.items():
+            print(f"{class_id}: {name}")
+
+        return
 
     class_names = DEFAULT_CLASSES.copy()
 
@@ -76,12 +89,7 @@ def main():
         class_names.append(args.add_class)
 
 
-    unknown = [name for name in class_names if name not in model.names.values()]
-
-    if unknown:
-        raise ValueError(f"Unsupported YOLO classes: {unknown}")
-
-    target_ids = [class_id for class_id, name in model.names.items() if name in class_names]
+    model.set_classes(class_names)
 
 
     cap = cv2.VideoCapture(0)
