@@ -2,16 +2,15 @@ import cv2
 import threading
 import time
 import argparse
-from ultralytics import YOLOE
+from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
 
-model = YOLOE("yoloe-26n-seg.pt")
+model = YOLO("runs/detect/recycling_focused/weights/best.pt")
 
 DEFAULT_CLASSES = [
-    "cardboard box",
-    "flattened cardboard",
-    "plastic bottle",
+    "Cardboard Box",
+    "Plastic Bottle",
 ]
 target_ids: list[int] = []
 
@@ -28,6 +27,8 @@ result_lock = threading.Lock()
 def bg_loop():
     global last_result, last_analysis_frame, latest_frame
 
+    last_debug_time = 0.0
+
     while not stop_event.is_set():
         with frame_lock:
             frame = latest_frame.copy() if latest_frame is not None else None
@@ -39,14 +40,26 @@ def bg_loop():
 
         start = time.perf_counter()
 
-        res = model.predict(source=frame, device="cpu", imgsz=416, conf=0.35, verbose=False)
+        res = model.predict(source=frame, device="cpu", imgsz=416, conf=0.20, classes=target_ids, verbose=False)
 
         res = next(iter(res))
 
         if not isinstance(res, Results):
             raise TypeError("Expected YOLO result")
 
-        elapsed_ms = (time.perf_counter() - start) * 1000
+        now = time.perf_counter()
+
+        if now - last_debug_time >= 2:
+            if res.boxes is not None:
+                for box in res.boxes:
+                    class_id = int(box.cls.item())
+                    conf = float(box.conf.item())
+
+                    print(f"{model.names[class_id]}: {conf:.2%}")
+
+            last_debug_time = now
+
+        elapsed_ms = (now - start) * 1000
 
 
         annotated = res.plot()
@@ -89,8 +102,13 @@ def main():
         class_names.append(args.add_class)
 
 
-    model.set_classes(class_names)
+    target_ids = [
+        class_id for class_id, name in model.names.items()
+        if name in class_names
+    ]
 
+    print("Available classes:", model.names)
+    print("Selected class IDs:", target_ids)
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
@@ -114,6 +132,8 @@ def main():
 
             ts = time.strftime("%H:%M:%S")
             cv2.putText(frame, ts, (10, frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+            cv2.imshow("Webcam", frame)
 
             with result_lock:
                 analysis = last_analysis_frame
