@@ -1,6 +1,6 @@
-train: ../train/images
-val: ../valid/images
-test: ../test/images
+train: train/images
+val: valid/images
+test: test/images
 
 nc: 14
 names: ['Aluminum Can', 'Bottle Lid', 'Cardboard Box', 'Cigarette Filter', 'Eggshell', 'Leaf', 'Plastic Bottle', 'Plastic Fork', 'Plastic Pouch', 'Plastic Spoon', 'Plastic Wrapper', 'Rubberband', 'Styrofoam Container', 'Wood Stick']
